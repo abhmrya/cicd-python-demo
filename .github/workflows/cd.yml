@@ -6,12 +6,14 @@ on:
     types:
       - completed
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
-
   deploy:
-    name: Deploy to EC2
+    name: Deploy to EC2 with SSM
 
-    # Deploy only when CI succeeded
     if: >
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main'
@@ -20,61 +22,32 @@ jobs:
 
     steps:
 
-      # --------------------------------------------------
-      # 1. Configure SSH
-      # --------------------------------------------------
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::181185361491:role/SSMDeployPolicy
+          aws-region: ap-south-1
 
-      - name: Configure SSH
+      - name: Deploy application through SSM
         run: |
-          mkdir -p ~/.ssh
-
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/cicd-key.pem
-
-          chmod 600 ~/.ssh/cicd-key.pem
-
-          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
-
-
-      # --------------------------------------------------
-      # 2. Deploy application
-      # --------------------------------------------------
-
-      - name: Deploy to EC2
-        run: |
-          ssh -i ~/.ssh/cicd-key.pem ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
-
-          set -e
-
-          echo "Starting deployment..."
-
-          echo "Pulling latest Docker image..."
-
-          docker pull ghcr.io/abhmrya/cicd-python-demo:latest
-
-          echo "Stopping old container..."
-
-          docker stop cicd-python-demo || true
-
-          echo "Removing old container..."
-
-          docker rm cicd-python-demo || true
-
-          echo "Starting new container..."
-
-          docker run -d \
-            --name cicd-python-demo \
-            --restart unless-stopped \
-            -p 8000:8000 \
-            ghcr.io/abhmrya/cicd-python-demo:latest
-
-          echo "Waiting for application..."
-
-          sleep 5
-
-          echo "Testing health endpoint..."
-
-          curl --fail http://localhost:8000/health
-
-          echo "Deployment successful!"
-
-          EOF
+          aws ssm send-command \
+            --instance-ids i-05256d8c841e0f2ba \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "set -e",
+              "echo Starting deployment...",
+              "echo Pulling latest Docker image...",
+              "docker pull ghcr.io/abhmrya/cicd-python-demo:latest",
+              "echo Stopping old container...",
+              "docker stop cicd-python-demo || true",
+              "echo Removing old container...",
+              "docker rm cicd-python-demo || true",
+              "echo Starting new container...",
+              "docker run -d --name cicd-python-demo --restart unless-stopped -p 8000:8000 ghcr.io/abhmrya/cicd-python-demo:latest",
+              "echo Waiting for application...",
+              "sleep 5",
+              "echo Testing health endpoint...",
+              "curl --fail http://localhost:8000/health",
+              "echo Deployment successful!"
+            ]' \
+            --comment "Deploy cicd-python-demo"
