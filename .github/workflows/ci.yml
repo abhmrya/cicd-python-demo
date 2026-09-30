@@ -9,8 +9,12 @@ on:
     branches:
       - main
 
+
 jobs:
 
+  # ============================================================
+  # 1. TEST
+  # ============================================================
   test:
     name: Tests
 
@@ -34,6 +38,9 @@ jobs:
         run: pytest
 
 
+  # ============================================================
+  # 2. CODE QUALITY
+  # ============================================================
   quality:
     name: Code Quality
 
@@ -60,8 +67,11 @@ jobs:
         run: ruff format --check .
 
 
+  # ============================================================
+  # 3. DEPENDENCY SECURITY
+  # ============================================================
   security:
-    name: Security
+    name: Dependency Security
 
     runs-on: ubuntu-latest
 
@@ -83,6 +93,9 @@ jobs:
         run: pip-audit
 
 
+  # ============================================================
+  # 4. DOCKER BUILD
+  # ============================================================
   build:
     name: Docker Build
 
@@ -98,8 +111,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -t cicd-python-demo .
+        run: |
+          docker build -t cicd-python-demo:1.0 .
 
+
+  # ============================================================
+  # 5. CONTAINER TEST
+  # ============================================================
   container-test:
     name: Container Test
 
@@ -112,7 +130,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -t cicd-python-demo:1.0 .
+        run: |
+          docker build -t cicd-python-demo:1.0 .
 
       - name: Run Docker container
         run: |
@@ -125,16 +144,28 @@ jobs:
         run: sleep 5
 
       - name: Test health endpoint
-        run: curl --fail http://localhost:8000/health
+        run: |
+          curl --fail http://localhost:8000/health
 
       - name: Show container logs
         if: always()
-        run: docker logs cicd-python-demo-container
+        run: |
+          docker logs cicd-python-demo-container
 
       - name: Stop container
         if: always()
-        run: docker stop cicd-python-demo-container
+        run: |
+          docker stop cicd-python-demo-container || true
 
+      - name: Remove container
+        if: always()
+        run: |
+          docker rm cicd-python-demo-container || true
+
+
+  # ============================================================
+  # 6. DOCKER IMAGE SECURITY SCAN
+  # ============================================================
   image-security:
     name: Docker Image Security Scan
 
@@ -147,7 +178,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -t cicd-python-demo:1.0 .
+        run: |
+          docker build -t cicd-python-demo:1.0 .
 
       - name: Scan Docker image
         uses: aquasecurity/trivy-action@master
