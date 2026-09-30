@@ -1,0 +1,80 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+
+jobs:
+
+  deploy:
+    name: Deploy to EC2
+
+    # Deploy only when CI succeeded
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # --------------------------------------------------
+      # 1. Configure SSH
+      # --------------------------------------------------
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/cicd-key.pem
+
+          chmod 600 ~/.ssh/cicd-key.pem
+
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+
+      # --------------------------------------------------
+      # 2. Deploy application
+      # --------------------------------------------------
+
+      - name: Deploy to EC2
+        run: |
+          ssh -i ~/.ssh/cicd-key.pem ubuntu@${{ secrets.EC2_HOST }} << 'EOF'
+
+          set -e
+
+          echo "Starting deployment..."
+
+          echo "Pulling latest Docker image..."
+
+          docker pull ghcr.io/abhmrya/cicd-python-demo:latest
+
+          echo "Stopping old container..."
+
+          docker stop cicd-python-demo || true
+
+          echo "Removing old container..."
+
+          docker rm cicd-python-demo || true
+
+          echo "Starting new container..."
+
+          docker run -d \
+            --name cicd-python-demo \
+            --restart unless-stopped \
+            -p 8000:8000 \
+            ghcr.io/abhmrya/cicd-python-demo:latest
+
+          echo "Waiting for application..."
+
+          sleep 5
+
+          echo "Testing health endpoint..."
+
+          curl --fail http://localhost:8000/health
+
+          echo "Deployment successful!"
+
+          EOF
